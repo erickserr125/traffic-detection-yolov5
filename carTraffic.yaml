@@ -1,0 +1,17 @@
+path: data/localization/
+train: train/images/
+val: train/images/
+test: test/images/
+
+names:
+ 1: Articulated Truck
+ 2: Bicycle
+ 3: Bus
+ 4: Car
+ 5: Motorcycle
+ 6: Motorized Vehicles
+ 7: Non-motorized Vehicles
+ 8: Pedestrian
+ 9: Pickup Truck
+ 10: Single-Unit Truck
+ 11: Work Van
