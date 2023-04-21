@@ -35,7 +35,6 @@ model.conf = .27 #Minimum .5 confidence threshold
 TODO:
 1) Live Video
 """
-count_list = []
 frameRate = 0
 time_limit = 100#10 Seconds
 vid = cv2.VideoCapture(0)
@@ -45,7 +44,6 @@ image_frames = []
 #Store tracking info per video
 tracker=sort.Sort() 
 ids = defaultdict(set)
-count = 0
 
 
 # In[14]:
@@ -128,11 +126,7 @@ if(len(image_frames)>0):
 else:
     print("No image frames to save!")
 
-#Cars/Pedestrians counted    
-count_list.append(count)
-    
 print("Frame rate: ",frameRate)
-print("Final Count list:", count_list)
 
 
 # In[ ]:
