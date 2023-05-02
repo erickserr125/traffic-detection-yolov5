@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[8]:
+# In[1]:
 
 
 """
@@ -9,69 +9,74 @@ In this script, we will
 """
 
 import torch 
-import cv2
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
 import pandas as pd
 from sort import sort
 from time import time
 from collections import defaultdict
+import threading
+# import required libraries
+from vidgear.gears import CamGear
+from vidgear.gears import WriteGear
+import cv2
 """
 Load the model with a certain confidence threshold (TBD)
 """
 model = torch.hub.load('.','custom','best.pt',source='local')
+model.conf = .4 #Minimum .5 confidence threshold
 
 
-# In[9]:
-
-
-model.conf = .27 #Minimum .5 confidence threshold
-
-
-# In[ ]:
+# In[2]:
 
 
 """
-TODO:
-1) Live Video
+Initializing values for tracking and video capture:
 """
-frameRate = 0
-time_limit = 100#10 Seconds
-vid = cv2.VideoCapture(0)
-ret,frame = vid.read()
-image_frames = []
-
 #Store tracking info per video
 tracker=sort.Sort() 
 ids = defaultdict(set)
-
-
-# In[14]:
-
-
 #.ttf file, font-size
-myFont = ImageFont.truetype('ostrich-regular.ttf', 20)
+myFont = ImageFont.truetype('ostrich-regular.ttf', 15)
+# define and open video source
+stream = CamGear(source="/dev/video0", logging=True).start()
+
+# [WARNING] Change your YouTube-Live Stream Key here:
+YOUTUBE_STREAM_KEY = "1szm-jm2t-m45s-ygw9-1rbx"
 
 
-# In[28]:
+# In[3]:
 
 
-"""start_time = time()
-ret,frame = vid.read()
-frame = cv2.cvtColor(frame,cv2.COLOR_BGR2RGBA)
-results = model(frame)
-time_elaps = time()-start_time
-fps = 1/time_elaps
-print(time_elaps,fps)"""
+# define required FFmpeg parameters for your writer
+output_params = {
+    "-clones": ["-f", "lavfi", "-i", "anullsrc"],
+    "-vcodec": "libx264",
+    "-preset": "medium",
+    "-b:v": "4500k",
+    "-bufsize": "512k",
+    "-pix_fmt": "yuv420p",
+    "-f": "flv",
+}
+# Define writer with defined parameters
+writer = WriteGear(
+    output="rtmp://a.rtmp.youtube.com/live2/{}".format(YOUTUBE_STREAM_KEY),
+    logging=True,
+    **output_params
+)
+lock = threading.Lock()
+def sendFrameToStream(frame):
+    lock.acquire()
+    writer.write(frame)
+    lock.release()
+    return
+
+# In[4]:
 
 
-# In[15]:
-
-
-start_time = time()
-#Set number of frames to look at for testing purposes
-while(ret):
-    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGBA)
+def model_image(frame):
+    """
+    Takes an image frame and returns the traffic count in the frame 
+    """
     results = model(frame)
     #Retrieving boundingbox data as dataframe 
     #Dataframe Format (xyxy attribute):
@@ -80,7 +85,6 @@ while(ret):
     trafficType=data["name"]
     data = data.iloc[:][:5].to_numpy()
     data = data[:,:5].astype('float64')
-
 
     #Updated with ids on the camera
     track_res = tracker.update(data)
@@ -98,9 +102,9 @@ while(ret):
 
     #Draw the count on the video frame
     im_draw = ImageDraw.Draw(im)
-    draw_text=""
+    draw_text="Traffic Counts\n"
     for trafficType, id_set in ids.items():
-        draw_text+=trafficType+" COUNT=" +str(len(id_set))+"\n"
+        draw_text+=trafficType+"'s counted=" +str(len(id_set))+"\n"
 
     im_draw.multiline_text((0,
                       0), 
@@ -110,27 +114,42 @@ while(ret):
                  align="left",direction=None,
                  features=None,language=None,
                  stroke_width=1, stroke_fill="black")
-    #Check if the images are being properly converted:
-    image_frames.append(im)#Append for conversion to video
-    time_elaps = time()-start_time
-    if(time_elaps>time_limit):
-        frameRate = len(image_frames)/(time_elaps)
+    lock.acquire()
+    frame = im
+    lock.release()
+    return
+
+# In[5]:
+start_time = time()
+
+# loop over
+while True:
+    if(time() - start_time >= 60):
+        #safely close video stream
+        stream.stop()
+
+        # safely close writer
+        writer.close()
+
+        print("Finished Live Video Stream")
         break
-    ret, frame = vid.read()
-
-#Save video as gif
-if(len(image_frames)>0):
-        #Save video as gif
-        image_frames[0].save('runs/detect/videos/video1.gif',
-                         save_all=True, optimize=False,append_images=image_frames[1:],loop=0)
-else:
-    print("No image frames to save!")
-
-print("Frame rate: ",frameRate)
-
-
-# In[ ]:
-
-
-
-
+    # read frames from stream
+    frame = stream.read()
+    # check for frame if Nonetype
+    if frame is None:
+        break
+    
+    model_image(frame)
+    sendFrameToStream(frame)
+    
+    thread1 = threading.Thread(target=model_image, kwargs={'frame':frame})
+    thread1.start()
+    thread2 = threading.Thread(target=sendFrameToStream, kwargs={'frame':frame})
+    thread2.start()
+    #Run while thread1 is modeling
+    while(thread1.is_alive()):
+        if(not thread2.is_alive()):
+            thread2 = threading.Thread(target=sendFrameToStream, kwargs={'frame':frame})
+            thread2.start()
+    thread2.join()
+    thread1.join()
